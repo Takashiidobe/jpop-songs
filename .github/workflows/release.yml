@@ -19,7 +19,7 @@ jobs:
       matrix:
         job:
           # DONE: Compiles
-          - { target: x86_64-unknown-linux-musl, os: ubuntu-20.04, use-cross: true }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-20.04, use-cross: false }
 
     steps:
     - name: Checkout source code
