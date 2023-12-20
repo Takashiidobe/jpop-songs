@@ -1,9 +1,10 @@
-# Taken from: https://github.com/sharkdp/hyperfine
-name: Release
-
+# # Taken from: https://github.com/sharkdp/hyperfine
 env:
   CICD_INTERMEDIATES_DIR: "_cicd-intermediates"
-  RUST_BACKTRACE: 1
+  MSRV_FEATURES: ""
+  CROSS_TARGET_AARCH64_LINUX_ANDROID_IMAGE: "ghcr.io/cross-rs/aarch64-linux-android:main"
+  CROSS_TARGET_I686_LINUX_ANDROID_IMAGE: "ghcr.io/cross-rs/i686-linux-android:main"
+  CROSS_TARGET_X86_64_LINUX_ANDROID_IMAGE: "ghcr.io/cross-rs/x86_64-linux-android:main"
 
 on:
   push:
@@ -11,64 +12,85 @@ on:
       - '*'
 
 jobs:
+  crate_metadata:
+    name: Extract crate metadata
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Extract crate information
+      id: crate_metadata
+      run: |
+        cargo metadata --no-deps --format-version 1 | jq -r '"name=" + .packages[0].name' | tee -a $GITHUB_OUTPUT
+        cargo metadata --no-deps --format-version 1 | jq -r '"version=" + .packages[0].version' | tee -a $GITHUB_OUTPUT
+    outputs:
+      name: ${{ steps.crate_metadata.outputs.name }}
+      version: ${{ steps.crate_metadata.outputs.version }}
   build:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
     runs-on: ${{ matrix.job.os }}
+    needs: crate_metadata
     strategy:
       fail-fast: false
       matrix:
         job:
-          # DONE: Compiles
-          - { target: x86_64-unknown-linux-gnu, os: ubuntu-20.04, use-cross: false }
-
+          # Linux
+          - { target: x86_64-unknown-linux-musl   , os: ubuntu-latest, use-cross: true }
+          - { target: aarch64-unknown-linux-musl  , os: ubuntu-latest, use-cross: true }
+          - { target: i686-unknown-linux-musl     , os: ubuntu-latest, use-cross: true }
+          - { target: arm-unknown-linux-musleabihf, os: ubuntu-latest, use-cross: true }
+          # Android
+          - { target: aarch64-linux-android       , os: ubuntu-latest, use-cross: true }
+          - { target: x86_64-linux-android        , os: ubuntu-latest, use-cross: true }
+          # Apple
+          - { target: x86_64-apple-darwin         , os: macos-latest                   }
+          - { target: aarch64-apple-darwin        , os: macos-latest                   }
+          # iOS
+          - { target: aarch64-apple-ios           , os: macos-latest                   }
+          # Windows
+          - { target: x86_64-pc-windows-gnu       , os: windows-latest                 }
+          - { target: x86_64-pc-windows-msvc      , os: windows-latest                 }
+          - { target: aarch64-pc-windows-msvc     , os: windows-latest                 }
+          - { target: i686-pc-windows-msvc        , os: windows-latest                 }
+          # BSDs
+          - { target: x86_64-unknown-netbsd       , os: ubuntu-latest, use-cross: true }
+          - { target: x86_64-unknown-freebsd      , os: ubuntu-latest, use-cross: true }
+          - { target: aarch64-unknown-freebsd     , os: ubuntu-latest, use-cross: true }
+    env:
+      BUILD_CMD: cargo
     steps:
     - name: Checkout source code
-      uses: actions/checkout@v2
-    - name: Cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ matrix.job.target }}-${{ matrix.job.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      uses: actions/checkout@v3
 
-    - name: Extract crate information
+    - name: Install prerequisites
       shell: bash
       run: |
-        echo "PROJECT_NAME=${{ github.event.repository.name }}" >> $GITHUB_ENV
-        echo "PROJECT_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)" >> $GITHUB_ENV
-        echo "PROJECT_MAINTAINER=$(sed -n 's/^authors = \["\(.*\)"\]/\1/p' Cargo.toml)" >> $GITHUB_ENV
-        echo "PROJECT_HOMEPAGE=$(sed -n 's/^homepage = "\(.*\)"/\1/p' Cargo.toml)" >> $GITHUB_ENV
+        case ${{ matrix.job.target }} in
+          arm-unknown-linux-*) sudo apt-get -y update ; sudo apt-get -y install gcc-arm-linux-gnueabihf ;;
+          aarch64-unknown-linux-gnu) sudo apt-get -y update ; sudo apt-get -y install gcc-aarch64-linux-gnu ;;
+        esac
+
     - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        target: ${{ matrix.job.target }}
-        profile: minimal
-        toolchain: stable
+        targets: ${{ matrix.job.target }}
 
-    - name: Show version information (Rust, cargo, GCC)
+    - name: Install cross
+      if: matrix.job.use-cross
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cross
+
+    - name: Overwrite build command env variable
+      if: matrix.job.use-cross
       shell: bash
-      run: |
-        gcc --version || true
-        rustup -V
-        rustup toolchain list
-        rustup default
-        cargo -V
-        rustc -V
-    - name: Show rustc --version --verbose
-      shell: bash
-      run: rustc --version --verbose
+      run: echo "BUILD_CMD=cross" >> $GITHUB_ENV
 
     - name: Build
-      uses: actions-rs/cargo@v1
-      with:
-        use-cross: ${{ matrix.job.use-cross }}
-        command: build
-        args: --locked --release --target=${{ matrix.job.target }}
+      shell: bash
+      run: $BUILD_CMD build --locked --release --target=${{ matrix.job.target }}
 
-    - name: Strip debug information from executable
-      id: strip
+    - name: Set binary name & path
+      id: bin
       shell: bash
       run: |
         # Figure out suffix of binary
@@ -76,31 +98,30 @@ jobs:
         case ${{ matrix.job.target }} in
           *-pc-windows-*) EXE_suffix=".exe" ;;
         esac;
+
         # Setup paths
-        BIN_DIR="${{ env.CICD_INTERMEDIATES_DIR }}/stripped-release-bin/"
-        mkdir -p "${BIN_DIR}"
-        BIN_NAME="${{ env.PROJECT_NAME }}${EXE_suffix}"
-        BIN_PATH="${BIN_DIR}/${BIN_NAME}"
-        TRIPLET_NAME="${{ matrix.job.target }}"
-        # Copy the release build binary to the result location
-        cp "target/$TRIPLET_NAME/release/${BIN_NAME}" "${BIN_DIR}"
-        # Let subsequent steps know where to find the (stripped) bin
-        echo ::set-output name=BIN_PATH::${BIN_PATH}
-        echo ::set-output name=BIN_NAME::${BIN_NAME}
+        BIN_NAME="${{ needs.crate_metadata.outputs.name }}${EXE_suffix}"
+        BIN_PATH="target/${{ matrix.job.target }}/release/${BIN_NAME}"
+
+        # Let subsequent steps know where to find the binary
+        echo "BIN_PATH=${BIN_PATH}" >> $GITHUB_OUTPUT
+        echo "BIN_NAME=${BIN_NAME}" >> $GITHUB_OUTPUT
+
     - name: Create tarball
       id: package
       shell: bash
       run: |
-        PKG_suffix=".tar.gz" ;
-        PKG_BASENAME=${PROJECT_NAME}-v${PROJECT_VERSION}-${{ matrix.job.target }}
+        PKG_suffix=".tar.gz" ; case ${{ matrix.job.target }} in *-pc-windows-*) PKG_suffix=".zip" ;; esac;
+        PKG_BASENAME=${{ needs.crate_metadata.outputs.name }}-v${{ needs.crate_metadata.outputs.version }}-${{ matrix.job.target }}
         PKG_NAME=${PKG_BASENAME}${PKG_suffix}
-        echo ::set-output name=PKG_NAME::${PKG_NAME}
+        echo "PKG_NAME=${PKG_NAME}" >> $GITHUB_OUTPUT
+
         PKG_STAGING="${{ env.CICD_INTERMEDIATES_DIR }}/package"
         ARCHIVE_DIR="${PKG_STAGING}/${PKG_BASENAME}/"
         mkdir -p "${ARCHIVE_DIR}"
-        mkdir -p "${ARCHIVE_DIR}/autocomplete"
         # Binary
-        cp "${{ steps.strip.outputs.BIN_PATH }}" "$ARCHIVE_DIR"
+        cp "${{ steps.bin.outputs.BIN_PATH }}" "$ARCHIVE_DIR"
+
         # base compressed package
         pushd "${PKG_STAGING}/" >/dev/null
         case ${{ matrix.job.target }} in
@@ -108,18 +129,29 @@ jobs:
           *) tar czf "${PKG_NAME}" "${PKG_BASENAME}"/* ;;
         esac;
         popd >/dev/null
+
         # Let subsequent steps know where to find the compressed package
-        echo ::set-output name=PKG_PATH::"${PKG_STAGING}/${PKG_NAME}"
+        echo "PKG_PATH=${PKG_STAGING}/${PKG_NAME}" >> $GITHUB_OUTPUT
+
     - name: "Artifact upload: tarball"
       uses: actions/upload-artifact@master
       with:
         name: ${{ steps.package.outputs.PKG_NAME }}
         path: ${{ steps.package.outputs.PKG_PATH }}
 
+    - name: Check for release
+      id: is-release
+      shell: bash
+      run: |
+        unset IS_RELEASE ; if [[ $GITHUB_REF =~ ^refs/tags/v[0-9].* ]]; then IS_RELEASE='true' ; fi
+        echo "IS_RELEASE=${IS_RELEASE}" >> $GITHUB_OUTPUT
+
     - name: Publish archives and packages
       uses: softprops/action-gh-release@v1
+      if: steps.is-release.outputs.IS_RELEASE
       with:
         files: |
           ${{ steps.package.outputs.PKG_PATH }}
+          ${{ steps.debian-package.outputs.DPKG_PATH }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
