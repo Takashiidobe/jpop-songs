@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use askama::Template;
 use axum::{
     http::StatusCode,
@@ -5,8 +7,11 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use axum_prometheus::PrometheusMetricLayer;
+use datadog_tracing::axum::shutdown_signal;
+use datadog_tracing::axum::{OtelAxumLayer, OtelInResponseLayer};
 use scraper::{Html, Selector};
+use tower_http::timeout::TimeoutLayer;
+use tracing::info;
 
 use serde::Serialize;
 
@@ -15,28 +20,39 @@ const PORT: u16 = 3001;
 
 #[tokio::main]
 async fn main() {
-    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
-    tracing_subscriber::fmt::init();
+    let (_guard, tracer_shutdown) = datadog_tracing::init().unwrap();
 
     let app = Router::new()
         .route("/", get(root))
         .route("/api", get(api))
-        .route("/metrics", get(|| async move { metric_handle.render() }))
-        .layer(prometheus_layer);
+        .layer(OtelInResponseLayer)
+        .layer((
+            OtelAxumLayer::default(),
+            TimeoutLayer::new(Duration::from_secs(10)),
+        ));
 
     let listener = tokio::net::TcpListener::bind(&format!("0.0.0.0:{}", PORT))
         .await
         .unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app.into_make_service())
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+
+    tracer_shutdown.shutdown();
 }
 
+#[tracing::instrument]
 async fn root() -> impl IntoResponse {
+    info!("getting all songs");
     let songs = get_songs().await;
     let template = Songs { songs };
     (StatusCode::OK, HtmlTemplate(template))
 }
 
+#[tracing::instrument]
 async fn api() -> impl IntoResponse {
+    info!("starting API request");
     let songs = get_songs().await;
     (StatusCode::OK, Json(songs))
 }
