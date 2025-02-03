@@ -60,6 +60,7 @@ async fn api() -> impl IntoResponse {
     (StatusCode::OK, Json(songs))
 }
 
+#[tracing::instrument]
 async fn get_songs() -> Vec<Song> {
     let html = reqwest::get(CHARTS_URL)
         .await
