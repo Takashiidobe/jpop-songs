@@ -16,10 +16,13 @@ use tracing::info;
 use serde::Serialize;
 
 const CHARTS_URL: &str = "https://www.billboard.com/charts/japan-hot-100";
-const PORT: u16 = 3001;
-
 #[tokio::main]
 async fn main() {
+    let port: u16 = std::env::var("PORT")
+        .unwrap_or("3001".to_string())
+        .parse()
+        .unwrap();
+
     let (_guard, tracer_shutdown) = datadog_tracing::init().unwrap();
 
     let app = Router::new()
@@ -31,7 +34,7 @@ async fn main() {
             TimeoutLayer::new(Duration::from_secs(10)),
         ));
 
-    let listener = tokio::net::TcpListener::bind(&format!("0.0.0.0:{}", PORT))
+    let listener = tokio::net::TcpListener::bind(&format!("localhost:{}", port))
         .await
         .unwrap();
     axum::serve(listener, app.into_make_service())
