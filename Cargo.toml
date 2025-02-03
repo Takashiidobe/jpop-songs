@@ -7,13 +7,9 @@ edition = "2021"
 askama = "0.12.1"
 axum = { version = "0.8.1" }
 datadog-tracing = { version = "0.2.3", features = ["axum"] }
-opentelemetry = "0.27.1"
-opentelemetry-datadog = "0.15.0"
-opentelemetry_sdk = { version = "0.27.1", features = ["rt-tokio"] }
 reqwest = { version = "0.12.12", features = ["json", "rustls-tls"], default-features=false }
 scraper = "0.22.0"
 serde = { version = "1.0.217", features = ["derive"]}
 tokio = { version = "1.43", features = ["full"] }
 tower-http = { version = "0.6.2", features = ["timeout"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3.19" }
