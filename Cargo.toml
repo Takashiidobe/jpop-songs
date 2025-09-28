@@ -1,16 +1,16 @@
 [package]
 name = "jpop-songs"
 version = "0.1.4"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-askama = "0.12.1"
-axum = { version = "0.8.1" }
-reqwest = { version = "0.12.12", features = ["json", "rustls-tls"], default-features=false }
-scraper = "0.22.0"
-serde = { version = "1.0.217", features = ["derive"]}
-tokio = { version = "1.43", features = ["full"] }
+askama = "0.14.0"
+axum = { version = "0.8.4" }
+reqwest = { version = "0.12.23", features = ["json", "rustls-tls"], default-features=false }
+scraper = "0.24.0"
+serde = { version = "1.0.227", features = ["derive"]}
+tokio = { version = "1.47", features = ["full"] }
 
-datadog-tracing = { version = "0.2.3", features = ["axum"] }
-tower-http = { version = "0.6.2", features = ["timeout"] }
+datadog-tracing = { version = "0.3.0", features = ["axum"] }
+tower-http = { version = "0.6.6", features = ["timeout"] }
 tracing = "0.1"

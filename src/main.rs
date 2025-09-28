@@ -70,7 +70,7 @@ async fn get_songs() -> Vec<Song> {
         .unwrap();
 
     let fragment = Html::parse_fragment(&html);
-    let selector = Selector::parse(".c-title.a-no-trucate").unwrap();
+    let selector = Selector::parse(".o-chart-results-list__item .c-title").unwrap();
 
     let titles: Vec<_> = fragment
         .select(&selector)
@@ -78,7 +78,7 @@ async fn get_songs() -> Vec<Song> {
         .collect();
 
     let fragment = Html::parse_fragment(&html);
-    let selector = Selector::parse(".c-label.a-no-trucate").unwrap();
+    let selector = Selector::parse(".o-chart-results-list__item .c-label.a-no-trucate").unwrap();
 
     let artists: Vec<_> = fragment
         .select(&selector)
