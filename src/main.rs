@@ -101,17 +101,16 @@ async fn get_songs() -> Vec<Song> {
         .map(|e| extract_inner_link(e.inner_html().trim()))
         .collect();
 
-    let mut songs = vec![];
-
-    for (index, (artist, title)) in artists.into_iter().zip(titles.into_iter()).enumerate() {
-        songs.push(Song {
+    artists
+        .into_iter()
+        .zip(titles)
+        .enumerate()
+        .map(|(index, (artist, title))| Song {
             rank: (index + 1) as u8,
             song: title,
             artist,
         })
-    }
-
-    songs
+        .collect()
 }
 
 #[derive(Debug, Serialize)]
