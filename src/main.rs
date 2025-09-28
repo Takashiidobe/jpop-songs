@@ -2,13 +2,14 @@ use std::time::Duration;
 
 use askama::Template;
 use axum::{
+    Json, Router,
     http::StatusCode,
     response::{Html as HtmlResponse, IntoResponse, Response},
     routing::get,
-    Json, Router,
 };
 use datadog_tracing::axum::shutdown_signal;
 use datadog_tracing::axum::{OtelAxumLayer, OtelInResponseLayer};
+use html_escape::decode_html_entities;
 use scraper::{Html, Selector};
 use tower_http::timeout::TimeoutLayer;
 use tracing::info;
@@ -37,6 +38,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&format!("localhost:{}", port))
         .await
         .unwrap();
+    info!("Running server on localhost:{port}");
     axum::serve(listener, app.into_make_service())
         .with_graceful_shutdown(shutdown_signal())
         .await
@@ -60,6 +62,20 @@ async fn api() -> impl IntoResponse {
     (StatusCode::OK, Json(songs))
 }
 
+fn extract_inner_link(input: &str) -> String {
+    let fragment = Html::parse_fragment(input);
+
+    let selector = Selector::parse("a").unwrap();
+
+    let raw_text = if let Some(element) = fragment.select(&selector).next() {
+        element.text().collect::<Vec<_>>().join("")
+    } else {
+        input.to_string()
+    };
+
+    decode_html_entities(&raw_text).to_string()
+}
+
 #[tracing::instrument]
 async fn get_songs() -> Vec<Song> {
     let html = reqwest::get(CHARTS_URL)
@@ -74,7 +90,7 @@ async fn get_songs() -> Vec<Song> {
 
     let titles: Vec<_> = fragment
         .select(&selector)
-        .map(|x| x.inner_html().trim().to_string())
+        .map(|x| extract_inner_link(x.inner_html().trim()))
         .collect();
 
     let fragment = Html::parse_fragment(&html);
@@ -82,7 +98,7 @@ async fn get_songs() -> Vec<Song> {
 
     let artists: Vec<_> = fragment
         .select(&selector)
-        .map(|e| e.inner_html().trim().to_string())
+        .map(|e| extract_inner_link(e.inner_html().trim()))
         .collect();
 
     let mut songs = vec![];

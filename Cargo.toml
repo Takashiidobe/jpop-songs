@@ -14,3 +14,4 @@ tokio = { version = "1.47", features = ["full"] }
 datadog-tracing = { version = "0.3.0", features = ["axum"] }
 tower-http = { version = "0.6.6", features = ["timeout"] }
 tracing = "0.1"
+html-escape = "0.2.13"
